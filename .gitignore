@@ -7,3 +7,4 @@
 # Ignore the __pycache__ directory
 __pycache__/
 data
+visualization.ipynb
