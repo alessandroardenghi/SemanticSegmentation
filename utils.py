@@ -179,16 +179,21 @@ def plot_inference_results(test_dataset, model, n_predictions):
         
         n = min(n_predictions, images.shape[0])
         
-        fig, axes = plt.subplots(n, 3, figsize=(15, 5 * n))
+        fig, axes = plt.subplots(n, 4, figsize=(15, 5 * n))
         
         for i in range(n):
-            axes[i, 0].imshow(true_labels[i], cmap='viridis', interpolation='none', vmin=0, vmax=5)
-            axes[i, 0].set_title("Ground Truth")
+            
+            axes[i, 0].imshow(images[i][:, :, :3])
+            axes[i, 0].set_title("RGB Image")
             axes[i, 0].axis('off')
             
-            axes[i, 1].imshow(pred_labels[i], cmap='viridis', interpolation='none', vmin=0, vmax=5)
-            axes[i, 1].set_title("Prediction")
+            axes[i, 1].imshow(true_labels[i], cmap='viridis', interpolation='none', vmin=0, vmax=5)
+            axes[i, 1].set_title("Ground Truth")
             axes[i, 1].axis('off')
+            
+            axes[i, 2].imshow(pred_labels[i], cmap='viridis', interpolation='none', vmin=0, vmax=5)
+            axes[i, 2].set_title("Prediction")
+            axes[i, 2].axis('off')
             
             h, w = true_labels[i].shape
             error_map = np.zeros((h, w, 3), dtype=np.uint8)
@@ -198,9 +203,9 @@ def plot_inference_results(test_dataset, model, n_predictions):
             error_map[correct_mask] = [0, 255, 0]    # Green for correct
             error_map[incorrect_mask] = [255, 0, 0]    # Red for incorrect
             
-            axes[i, 2].imshow(error_map)
-            axes[i, 2].set_title("Correct (Green) / Incorrect (Red)")
-            axes[i, 2].axis('off')
+            axes[i, 3].imshow(error_map)
+            axes[i, 3].set_title("Correct (Green) / Incorrect (Red)")
+            axes[i, 3].axis('off')
         
         plt.tight_layout()
         plt.show()
@@ -212,3 +217,29 @@ def parse_rgb(serialized_datapoint):
     mask = tf.cast(mask, tf.int32)
     mask = tf.one_hot(mask, depth=6)
     return image, mask
+
+
+def build_datasets(train_filenames, val_filenames, test_filenames, parsing_function, batch_size=16):
+    train_dataset = (
+        tf.data.TFRecordDataset(train_filenames)
+        .map(parsing_function, num_parallel_calls=4)      
+        .shuffle(buffer_size=100)                   
+        .batch(batch_size)
+        .prefetch(1)                                
+    )
+
+    val_dataset = (
+        tf.data.TFRecordDataset(val_filenames)
+        .map(parsing_function, num_parallel_calls=4)
+        .batch(batch_size)
+        .prefetch(1)
+    )
+
+    test_dataset = (
+        tf.data.TFRecordDataset(test_filenames)
+        .map(parsing_function, num_parallel_calls=4)
+        .batch(batch_size)  # Use the same batch size as during training.
+        .prefetch(1)
+    )
+
+    return train_dataset, val_dataset, test_dataset
