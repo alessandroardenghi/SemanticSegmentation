@@ -9,3 +9,4 @@ __pycache__/
 data
 visualization.ipynb
 TFRecord_dir
+*DS_Store
