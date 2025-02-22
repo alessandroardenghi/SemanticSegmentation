@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+import rasterio as rio
+from rasterio.transform import xy
+import numpy as np
 import json
 
 def read_tiff(datapoint_path):
@@ -238,8 +242,85 @@ def build_datasets(train_filenames, val_filenames, test_filenames, parsing_funct
     test_dataset = (
         tf.data.TFRecordDataset(test_filenames)
         .map(parsing_function, num_parallel_calls=4)
-        .batch(batch_size)  # Use the same batch size as during training.
+        .batch(batch_size)  
         .prefetch(1)
     )
 
     return train_dataset, val_dataset, test_dataset
+
+
+def plot_datapoint_coordinates(raster_files):
+
+    lons = []
+    lats = []
+    groups = [] 
+
+    for i, file in enumerate(raster_files):
+        with rio.open(file) as dataset:
+            width, height = dataset.width, dataset.height
+            center_x = width // 2
+            center_y = height // 2
+            lon, lat = xy(dataset.transform, center_y, center_x)
+            lons.append(lon)
+            lats.append(lat)
+            groups.append(i // 1000) 
+
+    lons = np.array(lons)
+    lats = np.array(lats)
+    groups = np.array(groups)
+
+    scatter = plt.scatter(lons, lats, c=groups, cmap='viridis', s=5, alpha=0.7)
+    cbar = plt.colorbar(scatter, ticks=range(groups.max()+1))
+    plt.title('Center Coordinates of Raster Files (Colored by Index Interval)')
+    cbar.set_label('Group (each group = 1000 files)')
+    plt.xlabel('Longitude')
+    plt.ylabel('Latitude')
+
+    plt.show()
+    
+def plot_datapoints_by_angles(raster_files, grid_sizes):
+
+    lons = []
+    lats = []
+    
+    for file in raster_files:
+        with rio.open(file) as dataset:
+            width, height = dataset.width, dataset.height
+            center_x = width // 2
+            center_y = height // 2
+            lon, lat = xy(dataset.transform, center_y, center_x)
+            lons.append(lon)
+            lats.append(lat)
+
+    lons = np.array(lons)
+    lats = np.array(lats)
+
+    # Determine the overall min and max for longitude and latitude
+    min_lon, max_lon = lons.min(), lons.max()
+    min_lat, max_lat = lats.min(), lats.max()
+    
+    # Create subplots: one for each grid size
+    n_plots = len(grid_sizes)
+    fig, axs = plt.subplots(1, n_plots, figsize=(8 * n_plots, 8), sharex=True, sharey=True)
+    
+    # Ensure axs is iterable even when there's only one subplot.
+    if n_plots == 1:
+        axs = [axs]
+    
+    for ax, grid_size in zip(axs, grid_sizes):
+        # Compute grid cell indices for each point based on the grid_size
+        cell_x = np.floor((lons - min_lon) / grid_size).astype(int)
+        cell_y = np.floor((lats - min_lat) / grid_size).astype(int)
+        
+        # Use a checkerboard pattern: assign class 0 if (cell_x + cell_y) is even, else 1.
+        classes = (cell_x + cell_y) % 2
+        
+        scatter = ax.scatter(lons, lats, c=classes, cmap='viridis', s=5, alpha=0.7)
+        ax.set_title(f'Grid Size: {grid_size}°')
+        ax.set_xlabel('Longitude')
+        ax.set_ylabel('Latitude')
+    
+    fig.suptitle('Points Classified by Checkerboard Pattern\nfor Different Grid Sizes')
+    # Add one common colorbar for all subplots
+    plt.tight_layout()
+    plt.show()
