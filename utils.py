@@ -66,39 +66,116 @@ def _bytes_feature(value):
         value = value.numpy()  # Convert tensor to bytes.
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
+def _float_feature(value):
+    """Returns a float_list from a float / double."""
+    return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
+
+#def serialize_datapoint(datapoint_path):
+    
+    # # Reading .tiff file
+    # img_array = read_tiff(datapoint_path)
+    
+    
+    # # Splitting into RGB, IR, Elevation and Segmentation Mask
+    # image_rgb = img_array[:, :, :3]             # (224, 224, 3)
+    # ir = img_array[:, :, 3:4]                   # (224, 224, 1)
+    # elevation = img_array[:, :, 4:5]            # (224, 224, 1)
+    # mask = img_array[:, :, 5:6]                 # (224, 224, 1)
+    
+    # # Converting to bytes
+    # rgb_bytes = image_rgb.tobytes()
+    # ir_bytes = ir.tobytes()
+    # elevation_bytes = elevation.tobytes()
+    # mask_bytes = mask.tobytes()
+    # file_name_bytes = os.path.basename(datapoint_path).encode('utf-8')
+    
+    # # Creating feature dict
+    # feature = {
+    #     'image_rgb': _bytes_feature(rgb_bytes),
+    #     'IR': _bytes_feature(ir_bytes),
+    #     'elevation': _bytes_feature(elevation_bytes),
+    #     'mask': _bytes_feature(mask_bytes),
+    #     'file_name': _bytes_feature(file_name_bytes)
+    # }
+    
+    # # Creating single tf.example
+    # example = tf.train.Example(features=tf.train.Features(feature=feature))
+    # return example.SerializeToString()
 
 def serialize_datapoint(datapoint_path):
-    
-    # Reading .tiff file
+    # Read the TIFF file (assuming your read_tiff returns a NumPy array)
     img_array = read_tiff(datapoint_path)
     
+    # Compute the center latitude and longitude using Rasterio.
+    with rio.open(datapoint_path) as dataset:
+        width, height = dataset.width, dataset.height
+        center_x = width // 2
+        center_y = height // 2
+        # rasterio.transform.xy returns (lon, lat)
+        lon, lat = xy(dataset.transform, center_y, center_x)
     
-    # Splitting into RGB, IR, Elevation and Segmentation Mask
-    image_rgb = img_array[:, :, :3]             # (224, 224, 3)
-    ir = img_array[:, :, 3:4]                   # (224, 224, 1)
-    elevation = img_array[:, :, 4:5]            # (224, 224, 1)
-    mask = img_array[:, :, 5:6]                 # (224, 224, 1)
+    # Split the image into RGB, IR, Elevation, and Mask channels.
+    image_rgb = img_array[:, :, :3]      # shape (224, 224, 3)
+    ir = img_array[:, :, 3:4]             # shape (224, 224, 1)
+    elevation = img_array[:, :, 4:5]      # shape (224, 224, 1)
+    mask = img_array[:, :, 5:6]           # shape (224, 224, 1)
     
-    # Converting to bytes
+    # Convert the arrays to bytes.
     rgb_bytes = image_rgb.tobytes()
     ir_bytes = ir.tobytes()
     elevation_bytes = elevation.tobytes()
     mask_bytes = mask.tobytes()
     file_name_bytes = os.path.basename(datapoint_path).encode('utf-8')
     
-    # Creating feature dict
+    # Create a dictionary mapping the feature names to the tf.train.Example-compatible data types.
     feature = {
         'image_rgb': _bytes_feature(rgb_bytes),
         'IR': _bytes_feature(ir_bytes),
         'elevation': _bytes_feature(elevation_bytes),
         'mask': _bytes_feature(mask_bytes),
-        'file_name': _bytes_feature(file_name_bytes)
+        'file_name': _bytes_feature(file_name_bytes),
+        'lat': _float_feature(lat),
+        'lon': _float_feature(lon),
     }
     
-    # Creating single tf.example
-    example = tf.train.Example(features=tf.train.Features(feature=feature))
-    return example.SerializeToString()
+    # Create a Features message using tf.train.Example.
+    example_proto = tf.train.Example(features=tf.train.Features(feature=feature))
+    return example_proto.SerializeToString()
 
+# def parse_datapoint(serialized_example):
+    
+#     feature_description = {
+#         'image_rgb': tf.io.FixedLenFeature([], tf.string),  
+#         'IR': tf.io.FixedLenFeature([], tf.string),      
+#         'elevation': tf.io.FixedLenFeature([], tf.string),
+#         'mask': tf.io.FixedLenFeature([], tf.string),
+#         'file_name': tf.io.FixedLenFeature([], tf.string)
+#     }
+    
+#     example = tf.io.parse_single_example(serialized_example, feature_description)
+    
+#     rgb = tf.io.decode_raw(example['image_rgb'], tf.float32)
+#     rgb = tf.reshape(rgb, (224, 224, 3))  
+#     rgb = tf.cast(rgb, tf.float32) / 255.0
+    
+#     ir = tf.io.decode_raw(example['IR'], tf.float32)
+#     ir = tf.reshape(ir, (224, 224, 1))     
+    
+#     elevation = tf.io.decode_raw(example['elevation'], tf.float32)
+#     elevation = tf.reshape(elevation, (224, 224, 1)) 
+    
+#     # Rebuilding original image
+#     image = tf.concat([rgb, ir, elevation], axis=-1)  
+    
+    
+#     mask = tf.io.decode_raw(example['mask'], tf.float32)
+#     mask = tf.reshape(mask, (224, 224, 1)) 
+    
+#     # Extract the label.
+#     filename = example['file_name']
+    
+#     return image, mask, filename 
 
 def parse_datapoint(serialized_example):
     
@@ -107,7 +184,9 @@ def parse_datapoint(serialized_example):
         'IR': tf.io.FixedLenFeature([], tf.string),      
         'elevation': tf.io.FixedLenFeature([], tf.string),
         'mask': tf.io.FixedLenFeature([], tf.string),
-        'file_name': tf.io.FixedLenFeature([], tf.string)
+        'file_name': tf.io.FixedLenFeature([], tf.string),
+        'lat': tf.io.FixedLenFeature([], tf.float32),      # Added latitude feature
+        'lon': tf.io.FixedLenFeature([], tf.float32)       # Added longitude feature
     }
     
     example = tf.io.parse_single_example(serialized_example, feature_description)
@@ -122,26 +201,35 @@ def parse_datapoint(serialized_example):
     elevation = tf.io.decode_raw(example['elevation'], tf.float32)
     elevation = tf.reshape(elevation, (224, 224, 1)) 
     
-    # Rebuilding original image
+    # Rebuilding original image from channels.
     image = tf.concat([rgb, ir, elevation], axis=-1)  
-    
     
     mask = tf.io.decode_raw(example['mask'], tf.float32)
     mask = tf.reshape(mask, (224, 224, 1)) 
     
-    # Extract the label.
     filename = example['file_name']
     
-    return image, mask, filename 
+    # Extract the latitude and longitude.
+    lat = example['lat']
+    lon = example['lon']
+    
+    return image, mask, filename, lat, lon
 
+
+
+# def parse_rgb_ir(serialized_datapoint):
+#     image, mask, _ = parse_datapoint(serialized_datapoint)
+#     mask = tf.squeeze(mask, axis=-1)
+#     mask = tf.cast(mask, tf.int32)
+#     mask = tf.one_hot(mask, depth=6)
+#     return image[:, :, :4], mask
 
 def parse_rgb_ir(serialized_datapoint):
-    image, mask, _ = parse_datapoint(serialized_datapoint)
+    image, mask, _, _, _ = parse_datapoint(serialized_datapoint)
     mask = tf.squeeze(mask, axis=-1)
     mask = tf.cast(mask, tf.int32)
     mask = tf.one_hot(mask, depth=6)
     return image[:, :, :4], mask
-
 
 def plot_history(history_json_path, figsize=(12, 4)):
     with open(history_json_path, 'r') as file:
@@ -215,8 +303,15 @@ def plot_inference_results(test_dataset, model, n_predictions):
         plt.show()
         
         
+# def parse_rgb(serialized_datapoint):
+#     image, mask, _ = parse_datapoint(serialized_datapoint)
+#     mask = tf.squeeze(mask, axis=-1)
+#     mask = tf.cast(mask, tf.int32)
+#     mask = tf.one_hot(mask, depth=6)
+#     return image, mask
+
 def parse_rgb(serialized_datapoint):
-    image, mask, _ = parse_datapoint(serialized_datapoint)
+    image, mask, _, _, _ = parse_datapoint(serialized_datapoint)
     mask = tf.squeeze(mask, axis=-1)
     mask = tf.cast(mask, tf.int32)
     mask = tf.one_hot(mask, depth=6)
@@ -224,103 +319,141 @@ def parse_rgb(serialized_datapoint):
 
 
 def build_datasets(train_filenames, val_filenames, test_filenames, parsing_function, batch_size=16):
-    train_dataset = (
-        tf.data.TFRecordDataset(train_filenames)
-        .map(parsing_function, num_parallel_calls=4)      
-        .shuffle(buffer_size=100)                   
-        .batch(batch_size)
-        .prefetch(1)                                
-    )
+    
+    if isinstance(train_filenames, list):
+        train_dataset = (
+            tf.data.TFRecordDataset(train_filenames)
+            .map(parsing_function, num_parallel_calls=4)      
+            .shuffle(buffer_size=100)                   
+            .batch(batch_size)
+            .prefetch(1)                                
+        )
+    else:
+        train_dataset = train_filenames.map(parsing_function, num_parallel_calls=4).shuffle(buffer_size=100).batch(batch_size).prefetch(1) 
 
-    val_dataset = (
-        tf.data.TFRecordDataset(val_filenames)
-        .map(parsing_function, num_parallel_calls=4)
-        .batch(batch_size)
-        .prefetch(1)
-    )
-
-    test_dataset = (
-        tf.data.TFRecordDataset(test_filenames)
-        .map(parsing_function, num_parallel_calls=4)
-        .batch(batch_size)  
-        .prefetch(1)
-    )
+    if isinstance(val_filenames, list):
+        val_dataset = (
+            tf.data.TFRecordDataset(val_filenames)
+            .map(parsing_function, num_parallel_calls=4)
+            .batch(batch_size)
+            .prefetch(1)
+        )
+    else:
+        val_dataset = val_filenames.map(parsing_function, num_parallel_calls=4).batch(batch_size).prefetch(1)
+    
+    if isinstance(test_filenames, list):
+        test_dataset = (
+            tf.data.TFRecordDataset(test_filenames)
+            .map(parsing_function, num_parallel_calls=4)
+            .batch(batch_size)  
+            .prefetch(1)
+        )
+    
+    else:
+        test_dataset = test_filenames.map(parsing_function, num_parallel_calls=4).batch(batch_size).prefetch(1)
 
     return train_dataset, val_dataset, test_dataset
 
 
-def plot_datapoint_coordinates(raster_files):
+def plot_datapoints_from_datasets(dataset_list, figsize):
 
-    lons = []
-    lats = []
-    groups = [] 
-
-    for i, file in enumerate(raster_files):
-        with rio.open(file) as dataset:
-            width, height = dataset.width, dataset.height
-            center_x = width // 2
-            center_y = height // 2
-            lon, lat = xy(dataset.transform, center_y, center_x)
-            lons.append(lon)
-            lats.append(lat)
-            groups.append(i // 1000) 
-
-    lons = np.array(lons)
-    lats = np.array(lats)
-    groups = np.array(groups)
-
-    scatter = plt.scatter(lons, lats, c=groups, cmap='viridis', s=5, alpha=0.7)
-    cbar = plt.colorbar(scatter, ticks=range(groups.max()+1))
-    plt.title('Center Coordinates of Raster Files (Colored by Index Interval)')
-    cbar.set_label('Group (each group = 1000 files)')
+    colors = plt.cm.tab10.colors  # A palette of distinct colors.
+    plt.figure(figsize=figsize)
+    
+    for idx, dataset in enumerate(dataset_list):
+        lats = []
+        lons = []
+        
+        # Iterate over the dataset and collect latitudes and longitudes.
+        for record in dataset:
+            _, _, filename, lat, lon = record
+            lats.append(lat.numpy())
+            lons.append(lon.numpy())
+        
+        lats = np.array(lats)
+        lons = np.array(lons)
+        
+        # Plot the points using a unique color per dataset.
+        plt.scatter(lons, lats, color=colors[idx % len(colors)], 
+                    label=f"Dataset {idx+1}", s=5, alpha=0.7)
+    
     plt.xlabel('Longitude')
     plt.ylabel('Latitude')
-
-    plt.show()
-    
-def plot_datapoints_by_angles(raster_files, grid_sizes):
-
-    lons = []
-    lats = []
-    
-    for file in raster_files:
-        with rio.open(file) as dataset:
-            width, height = dataset.width, dataset.height
-            center_x = width // 2
-            center_y = height // 2
-            lon, lat = xy(dataset.transform, center_y, center_x)
-            lons.append(lon)
-            lats.append(lat)
-
-    lons = np.array(lons)
-    lats = np.array(lats)
-
-    # Determine the overall min and max for longitude and latitude
-    min_lon, max_lon = lons.min(), lons.max()
-    min_lat, max_lat = lats.min(), lats.max()
-    
-    # Create subplots: one for each grid size
-    n_plots = len(grid_sizes)
-    fig, axs = plt.subplots(1, n_plots, figsize=(8 * n_plots, 8), sharex=True, sharey=True)
-    
-    # Ensure axs is iterable even when there's only one subplot.
-    if n_plots == 1:
-        axs = [axs]
-    
-    for ax, grid_size in zip(axs, grid_sizes):
-        # Compute grid cell indices for each point based on the grid_size
-        cell_x = np.floor((lons - min_lon) / grid_size).astype(int)
-        cell_y = np.floor((lats - min_lat) / grid_size).astype(int)
-        
-        # Use a checkerboard pattern: assign class 0 if (cell_x + cell_y) is even, else 1.
-        classes = (cell_x + cell_y) % 2
-        
-        scatter = ax.scatter(lons, lats, c=classes, cmap='viridis', s=5, alpha=0.7)
-        ax.set_title(f'Grid Size: {grid_size}°')
-        ax.set_xlabel('Longitude')
-        ax.set_ylabel('Latitude')
-    
-    fig.suptitle('Points Classified by Checkerboard Pattern\nfor Different Grid Sizes')
-    # Add one common colorbar for all subplots
+    plt.title("Datapoints from Each TFRecord Dataset")
+    plt.legend()
     plt.tight_layout()
     plt.show()
+    
+
+def split_datasets_by_grid(dataset_list, grid_size=0.005):
+
+    # First pass: compute global minimum latitude and longitude across all datasets.
+    # Note: Iterating over the dataset will consume it, so consider caching in practice.
+    min_lat = None
+    min_lon = None
+    for ds in dataset_list:
+        for record in ds:
+            # record = (image, mask, filename, lat, lon)
+            lat = record[3].numpy()
+            lon = record[4].numpy()
+            if min_lat is None or lat < min_lat:
+                min_lat = lat
+            if min_lon is None or lon < min_lon:
+                min_lon = lon
+
+    # Convert to TensorFlow constants for use in our filter functions.
+    min_lat_tf = tf.constant(min_lat, dtype=tf.float32)
+    min_lon_tf = tf.constant(min_lon, dtype=tf.float32)
+    
+    # Define predicate functions that accept five arguments.
+    def is_even(image, mask, filename, lat, lon):
+        cell_y = tf.floor((lat - min_lat_tf) / grid_size)
+        cell_x = tf.floor((lon - min_lon_tf) / grid_size)
+        parity = tf.cast(cell_x + cell_y, tf.int32) % 2
+        return tf.equal(parity, 0)
+    
+    def is_odd(image, mask, filename, lat, lon):
+        cell_y = tf.floor((lat - min_lat_tf) / grid_size)
+        cell_x = tf.floor((lon - min_lon_tf) / grid_size)
+        parity = tf.cast(cell_x + cell_y, tf.int32) % 2
+        return tf.equal(parity, 1)
+    
+    # For each input dataset, filter into even and odd records.
+    even_datasets = []
+    odd_datasets = []
+    for ds in dataset_list:
+        even_datasets.append(ds.filter(is_even))
+        odd_datasets.append(ds.filter(is_odd))
+    
+    # Concatenate the individual datasets into one even and one odd dataset.
+    dataset_even = even_datasets[0]
+    for ds in even_datasets[1:]:
+        dataset_even = dataset_even.concatenate(ds)
+    
+    dataset_odd = odd_datasets[0]
+    for ds in odd_datasets[1:]:
+        dataset_odd = dataset_odd.concatenate(ds)
+    
+    return dataset_even, dataset_odd
+
+def split_train_val(train_dataset, split_ratio=0.8, shuffle_buffer=100, seed=42):
+
+    train_dataset = train_dataset.shuffle(shuffle_buffer, seed=seed, reshuffle_each_iteration=False)
+    
+    total_examples = 0
+    for _ in train_dataset:
+        total_examples += 1
+
+    train_count = int(total_examples * split_ratio)
+    
+    # Split the dataset using take and skip.
+    train_ds = train_dataset.take(train_count)
+    val_ds = train_dataset.skip(train_count)
+    
+    return train_ds, val_ds
+
+def parse_easy(image, mask, name, lat, lon):
+    mask = tf.squeeze(mask, axis=-1)
+    mask = tf.cast(mask, tf.int32)
+    mask = tf.one_hot(mask, depth=6)
+    return image, mask
