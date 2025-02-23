@@ -12,7 +12,7 @@ def build_base_model(input_size=(224, 224, 4)):
 
 
 def build_shallow_unet(input_size=(224, 224, 5)):
-    input = Input((224, 224, 5))
+    input = Input(input_size)
 
     # ENCODER 
     first_conv = Conv2D(32, kernel_size = (3, 3), 
