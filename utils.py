@@ -1,19 +1,16 @@
 import rasterio as rio
+from rasterio.transform import xy
+
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+
 import tensorflow as tf
 import numpy as np
 import os
-import matplotlib.pyplot as plt
-import rasterio as rio
-from rasterio.transform import xy
-import numpy as np
-import json
-import matplotlib.pyplot as plt
-import numpy as np
 import json
 
-def read_tiff(datapoint_path):
+
+def read_tiff(datapoint_path):              # Function taken from notebook provided in assignment description
     img = rio.open(datapoint_path)
     img_array = img.read()
     nRows = img_array.shape[1]
@@ -27,6 +24,7 @@ def read_tiff(datapoint_path):
 
 
 def plot_tiff(datapoint_path, figsize=(10, 10)):
+    
     img_array = read_tiff(datapoint_path)
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     axes[0, 0].imshow(img_array[:, :, :3]/255.0)
@@ -44,8 +42,8 @@ def plot_tiff(datapoint_path, figsize=(10, 10)):
     word_labels = {
     0.0: 'Impervious Surface',
     1.0: 'Building',
-    2.0: 'Low Vegetation',
-    3.0: 'Tree',
+    2.0: 'Tree',
+    3.0: 'Low Vegetation',
     4.0: 'Car',
     5.0: 'Clutter/Background'
     }
@@ -63,75 +61,42 @@ def plot_tiff(datapoint_path, figsize=(10, 10)):
     plt.show()
     
 
-def _bytes_feature(value):
+def _bytes_feature(value):                                  # Function taken from Tensorflow Documentation
     
     if isinstance(value, type(tf.constant(0))):
-        value = value.numpy()  # Convert tensor to bytes.
+        value = value.numpy()  
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-def _float_feature(value):
-    """Returns a float_list from a float / double."""
+def _float_feature(value):                                  # Function taken from Tensorflow Documentation
     return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
 
-
-#def serialize_datapoint(datapoint_path):
-    
-    # # Reading .tiff file
-    # img_array = read_tiff(datapoint_path)
-    
-    
-    # # Splitting into RGB, IR, Elevation and Segmentation Mask
-    # image_rgb = img_array[:, :, :3]             # (224, 224, 3)
-    # ir = img_array[:, :, 3:4]                   # (224, 224, 1)
-    # elevation = img_array[:, :, 4:5]            # (224, 224, 1)
-    # mask = img_array[:, :, 5:6]                 # (224, 224, 1)
-    
-    # # Converting to bytes
-    # rgb_bytes = image_rgb.tobytes()
-    # ir_bytes = ir.tobytes()
-    # elevation_bytes = elevation.tobytes()
-    # mask_bytes = mask.tobytes()
-    # file_name_bytes = os.path.basename(datapoint_path).encode('utf-8')
-    
-    # # Creating feature dict
-    # feature = {
-    #     'image_rgb': _bytes_feature(rgb_bytes),
-    #     'IR': _bytes_feature(ir_bytes),
-    #     'elevation': _bytes_feature(elevation_bytes),
-    #     'mask': _bytes_feature(mask_bytes),
-    #     'file_name': _bytes_feature(file_name_bytes)
-    # }
-    
-    # # Creating single tf.example
-    # example = tf.train.Example(features=tf.train.Features(feature=feature))
-    # return example.SerializeToString()
-
 def serialize_datapoint(datapoint_path):
-    # Read the TIFF file (assuming your read_tiff returns a NumPy array)
+    
+    # Reading the tiff file
     img_array = read_tiff(datapoint_path)
     
-    # Compute the center latitude and longitude using Rasterio.
+    # Computing latitude and longitude as shown in the notebook on Canvas
     with rio.open(datapoint_path) as dataset:
         width, height = dataset.width, dataset.height
         center_x = width // 2
         center_y = height // 2
-        # rasterio.transform.xy returns (lon, lat)
         lon, lat = xy(dataset.transform, center_y, center_x)
     
-    # Split the image into RGB, IR, Elevation, and Mask channels.
-    image_rgb = img_array[:, :, :3]      # shape (224, 224, 3)
-    ir = img_array[:, :, 3:4]             # shape (224, 224, 1)
-    elevation = img_array[:, :, 4:5]      # shape (224, 224, 1)
-    mask = img_array[:, :, 5:6]           # shape (224, 224, 1)
     
-    # Convert the arrays to bytes.
+    # Splitting the image into RGB, IR, Elevation, and Mask channels.
+    image_rgb = img_array[:, :, :3]                     # shape (224, 224, 3)
+    ir = img_array[:, :, 3:4]                           # shape (224, 224, 1)
+    elevation = img_array[:, :, 4:5]                    # shape (224, 224, 1)
+    mask = img_array[:, :, 5:6]                         # shape (224, 224, 1)
+    
+    # Converting the elements into bytes
     rgb_bytes = image_rgb.tobytes()
     ir_bytes = ir.tobytes()
     elevation_bytes = elevation.tobytes()
     mask_bytes = mask.tobytes()
     file_name_bytes = os.path.basename(datapoint_path).encode('utf-8')
     
-    # Create a dictionary mapping the feature names to the tf.train.Example-compatible data types.
+    
     feature = {
         'image_rgb': _bytes_feature(rgb_bytes),
         'IR': _bytes_feature(ir_bytes),
@@ -142,45 +107,12 @@ def serialize_datapoint(datapoint_path):
         'lon': _float_feature(lon),
     }
     
-    # Create a Features message using tf.train.Example.
     example_proto = tf.train.Example(features=tf.train.Features(feature=feature))
     return example_proto.SerializeToString()
 
-# def parse_datapoint(serialized_example):
-    
-#     feature_description = {
-#         'image_rgb': tf.io.FixedLenFeature([], tf.string),  
-#         'IR': tf.io.FixedLenFeature([], tf.string),      
-#         'elevation': tf.io.FixedLenFeature([], tf.string),
-#         'mask': tf.io.FixedLenFeature([], tf.string),
-#         'file_name': tf.io.FixedLenFeature([], tf.string)
-#     }
-    
-#     example = tf.io.parse_single_example(serialized_example, feature_description)
-    
-#     rgb = tf.io.decode_raw(example['image_rgb'], tf.float32)
-#     rgb = tf.reshape(rgb, (224, 224, 3))  
-#     rgb = tf.cast(rgb, tf.float32) / 255.0
-    
-#     ir = tf.io.decode_raw(example['IR'], tf.float32)
-#     ir = tf.reshape(ir, (224, 224, 1))     
-    
-#     elevation = tf.io.decode_raw(example['elevation'], tf.float32)
-#     elevation = tf.reshape(elevation, (224, 224, 1)) 
-    
-#     # Rebuilding original image
-#     image = tf.concat([rgb, ir, elevation], axis=-1)  
-    
-    
-#     mask = tf.io.decode_raw(example['mask'], tf.float32)
-#     mask = tf.reshape(mask, (224, 224, 1)) 
-    
-#     # Extract the label.
-#     filename = example['file_name']
-    
-#     return image, mask, filename 
 
 def parse_datapoint(serialized_example):
+    
     
     feature_description = {
         'image_rgb': tf.io.FixedLenFeature([], tf.string),  
@@ -188,10 +120,11 @@ def parse_datapoint(serialized_example):
         'elevation': tf.io.FixedLenFeature([], tf.string),
         'mask': tf.io.FixedLenFeature([], tf.string),
         'file_name': tf.io.FixedLenFeature([], tf.string),
-        'lat': tf.io.FixedLenFeature([], tf.float32),      # Added latitude feature
-        'lon': tf.io.FixedLenFeature([], tf.float32)       # Added longitude feature
+        'lat': tf.io.FixedLenFeature([], tf.float32),      
+        'lon': tf.io.FixedLenFeature([], tf.float32)       
     }
     
+    # Parsing the input example and returning to the original form
     example = tf.io.parse_single_example(serialized_example, feature_description)
     
     rgb = tf.io.decode_raw(example['image_rgb'], tf.float32)
@@ -204,30 +137,23 @@ def parse_datapoint(serialized_example):
     elevation = tf.io.decode_raw(example['elevation'], tf.float32)
     elevation = tf.reshape(elevation, (224, 224, 1)) 
     
-    # Rebuilding original image from channels.
-    image = tf.concat([rgb, ir, elevation], axis=-1)  
+    # Rebuilding original image from channels
+    image = tf.concat([rgb, ir, elevation], axis=-1)            # shape: (224, 224, 5)
     
     mask = tf.io.decode_raw(example['mask'], tf.float32)
     mask = tf.reshape(mask, (224, 224, 1)) 
     
     filename = example['file_name']
     
-    # Extract the latitude and longitude.
     lat = example['lat']
     lon = example['lon']
     
     return image, mask, filename, lat, lon
 
 
-
-# def parse_rgb_ir(serialized_datapoint):
-#     image, mask, _ = parse_datapoint(serialized_datapoint)
-#     mask = tf.squeeze(mask, axis=-1)
-#     mask = tf.cast(mask, tf.int32)
-#     mask = tf.one_hot(mask, depth=6)
-#     return image[:, :, :4], mask
-
 def parse_rgb_ir(serialized_datapoint):
+    
+    # Function to return only the RGB image and the IR image 
     image, mask, _, _, _ = parse_datapoint(serialized_datapoint)
     mask = tf.squeeze(mask, axis=-1)
     mask = tf.cast(mask, tf.int32)
@@ -262,13 +188,11 @@ def plot_history(history_json_path, figsize=(12, 4)):
     return history
 
 
-
 def plot_inference_results(test_dataset, model, n_predictions):
-    for images, labels in test_dataset.take(1):
-        
+    
+    for images, labels in test_dataset.take(1): # Predicts one batch
         predictions = model.predict(images)
         
-
         true_labels = np.argmax(labels.numpy(), axis=-1)
         pred_labels = np.argmax(predictions, axis=-1)
         
@@ -295,8 +219,8 @@ def plot_inference_results(test_dataset, model, n_predictions):
             correct_mask = (true_labels[i] == pred_labels[i])
             incorrect_mask = ~correct_mask
             
-            error_map[correct_mask] = [0, 255, 0]    # Green for correct
-            error_map[incorrect_mask] = [255, 0, 0]    # Red for incorrect
+            error_map[correct_mask] = [0, 255, 0]                   # Green for correct
+            error_map[incorrect_mask] = [255, 0, 0]                 # Red for incorrect
             
             axes[i, 3].imshow(error_map)
             axes[i, 3].set_title("Correct (Green) / Incorrect (Red)")
@@ -305,15 +229,9 @@ def plot_inference_results(test_dataset, model, n_predictions):
         plt.tight_layout()
         plt.show()
         
-        
-# def parse_rgb(serialized_datapoint):
-#     image, mask, _ = parse_datapoint(serialized_datapoint)
-#     mask = tf.squeeze(mask, axis=-1)
-#     mask = tf.cast(mask, tf.int32)
-#     mask = tf.one_hot(mask, depth=6)
-#     return image, mask
 
 def parse_rgb(serialized_datapoint):
+    # Function to parse inputs from TFRecord and return RGB image, IR image and Elevation and Mask
     image, mask, _, _, _ = parse_datapoint(serialized_datapoint)
     mask = tf.squeeze(mask, axis=-1)
     mask = tf.cast(mask, tf.int32)
@@ -323,7 +241,9 @@ def parse_rgb(serialized_datapoint):
 
 def build_datasets(train_filenames, val_filenames, test_filenames, parsing_function_train, parsing_function_val_test, batch_size=16):
     
-    if isinstance(train_filenames, list):
+    # Function to build train, val and test datasets from either a list of TFRecord filenames or from dataset objects
+    
+    if isinstance(train_filenames, list):               # A list of TFRecord file paths was passed as input
         train_dataset = (
             tf.data.TFRecordDataset(train_filenames)
             .map(parsing_function_train, num_parallel_calls=4)      
@@ -331,7 +251,7 @@ def build_datasets(train_filenames, val_filenames, test_filenames, parsing_funct
             .batch(batch_size)
             .prefetch(1)                                
         )
-    else:
+    else:           # A dataset object was passed as input
         train_dataset = train_filenames.map(parsing_function_train, num_parallel_calls=4).shuffle(buffer_size=100).batch(batch_size).prefetch(1) 
 
     if isinstance(val_filenames, list):
@@ -358,16 +278,17 @@ def build_datasets(train_filenames, val_filenames, test_filenames, parsing_funct
     return train_dataset, val_dataset, test_dataset
 
 
-def plot_datapoints_from_datasets(dataset_list, figsize):
+def plot_datapoints_from_datasets(dataset_list, figsize, labels):
 
-    colors = plt.cm.tab10.colors  # A palette of distinct colors.
+    # Function to plot datapoints belonging to the datasets in dataset_list according to their latitude and longitude
+    
+    colors = plt.cm.tab10.colors  
     plt.figure(figsize=figsize)
     
     for idx, dataset in enumerate(dataset_list):
         lats = []
         lons = []
         
-        # Iterate over the dataset and collect latitudes and longitudes.
         for record in dataset:
             _, _, filename, lat, lon = record
             lats.append(lat.numpy())
@@ -376,9 +297,8 @@ def plot_datapoints_from_datasets(dataset_list, figsize):
         lats = np.array(lats)
         lons = np.array(lons)
         
-        # Plot the points using a unique color per dataset.
         plt.scatter(lons, lats, color=colors[idx % len(colors)], 
-                    label=f"Dataset {idx+1}", s=5, alpha=0.7)
+                    label=labels[idx], s=5, alpha=0.7)
     
     plt.xlabel('Longitude')
     plt.ylabel('Latitude')
@@ -390,13 +310,12 @@ def plot_datapoints_from_datasets(dataset_list, figsize):
 
 def split_datasets_by_grid(dataset_list, grid_size=0.005):
 
-    # First pass: compute global minimum latitude and longitude across all datasets.
-    # Note: Iterating over the dataset will consume it, so consider caching in practice.
+    # Function to take a list of datasets and create two datasets by separating in patches based on lat/lon
+    
     min_lat = None
     min_lon = None
     for ds in dataset_list:
-        for record in ds:
-            # record = (image, mask, filename, lat, lon)
+        for record in ds:           
             lat = record[3].numpy()
             lon = record[4].numpy()
             if min_lat is None or lat < min_lat:
@@ -404,31 +323,32 @@ def split_datasets_by_grid(dataset_list, grid_size=0.005):
             if min_lon is None or lon < min_lon:
                 min_lon = lon
 
-    # Convert to TensorFlow constants for use in our filter functions.
     min_lat_tf = tf.constant(min_lat, dtype=tf.float32)
     min_lon_tf = tf.constant(min_lon, dtype=tf.float32)
     
-    # Define predicate functions that accept five arguments.
-    def is_even(image, mask, filename, lat, lon):
+    # We define two functions to determine whether a datapoint falls in the training or test region (i.e. is even or odd)
+    def is_even(img, ir, el, lat, lon):
         cell_y = tf.floor((lat - min_lat_tf) / grid_size)
         cell_x = tf.floor((lon - min_lon_tf) / grid_size)
         parity = tf.cast(cell_x + cell_y, tf.int32) % 2
         return tf.equal(parity, 0)
     
-    def is_odd(image, mask, filename, lat, lon):
+    def is_odd(img, ir, el, lat, lon):
         cell_y = tf.floor((lat - min_lat_tf) / grid_size)
         cell_x = tf.floor((lon - min_lon_tf) / grid_size)
         parity = tf.cast(cell_x + cell_y, tf.int32) % 2
         return tf.equal(parity, 1)
     
-    # For each input dataset, filter into even and odd records.
+    
     even_datasets = []
     odd_datasets = []
+    
+    # We split the dataset into odd or even
     for ds in dataset_list:
         even_datasets.append(ds.filter(is_even))
         odd_datasets.append(ds.filter(is_odd))
     
-    # Concatenate the individual datasets into one even and one odd dataset.
+    # In case more than one dataset was passed as input, merge even datasets and odd datasets
     dataset_even = even_datasets[0]
     for ds in even_datasets[1:]:
         dataset_even = dataset_even.concatenate(ds)
@@ -439,8 +359,10 @@ def split_datasets_by_grid(dataset_list, grid_size=0.005):
     
     return dataset_even, dataset_odd
 
-def split_train_val(train_dataset, split_ratio=0.8, shuffle_buffer=100, seed=42):
 
+def split_train_val(train_dataset, split_ratio=0.8, shuffle_buffer=100, seed=1):
+
+    # Function to split a dataset into train and val according to the split ratio.
     train_dataset = train_dataset.shuffle(shuffle_buffer, seed=seed, reshuffle_each_iteration=False)
     
     total_examples = 0
@@ -448,8 +370,6 @@ def split_train_val(train_dataset, split_ratio=0.8, shuffle_buffer=100, seed=42)
         total_examples += 1
 
     train_count = int(total_examples * split_ratio)
-    
-    # Split the dataset using take and skip.
     train_ds = train_dataset.take(train_count)
     val_ds = train_dataset.skip(train_count)
     
@@ -466,7 +386,6 @@ def plot_val_and_loss(validation_scores, test_scores, model_names):
     x = np.arange(len(model_names))
     width = 0.35  
 
-    # Create the plot
     fig, ax = plt.subplots(figsize=(8, 5))
     rects1 = ax.bar(x - width/2, validation_scores, width, label='Validation', color='skyblue')
     rects2 = ax.bar(x + width/2, test_scores, width, label='Test', color='salmon')
@@ -477,6 +396,7 @@ def plot_val_and_loss(validation_scores, test_scores, model_names):
     ax.set_xticklabels(model_names)
     ax.legend()
 
+    # Function to add the score on top of the bar to make plots nicer
     def autolabel(rects):
         """Attach a text label above each bar displaying its height."""
         for rect in rects:
@@ -495,30 +415,37 @@ def plot_val_and_loss(validation_scores, test_scores, model_names):
     
 
 def augment(image, mask):
-    # Random rotation by a multiple of 90 degrees
+    
+    # Function to do data augmentation during training.
+    
+    # Apply a random rotation of a multiple of 90 degrees
     k = tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32)
     image = tf.image.rot90(image, k)
     mask = tf.image.rot90(mask, k)
 
-    # Random horizontal flip with probability 0.5
+    # Apply a horizontal flip with probability 1/2
     flip_lr = tf.less(tf.random.uniform([], 0, 1.0), 0.5)
     image = tf.cond(flip_lr, lambda: tf.image.flip_left_right(image), lambda: image)
     mask = tf.cond(flip_lr, lambda: tf.image.flip_left_right(mask), lambda: mask)
 
-    # Random vertical flip with probability 0.5
+    # Apply a random vertical flip with probability 1/2
     flip_ud = tf.less(tf.random.uniform([], 0, 1.0), 0.5)
     image = tf.cond(flip_ud, lambda: tf.image.flip_up_down(image), lambda: image)
     mask = tf.cond(flip_ud, lambda: tf.image.flip_up_down(mask), lambda: mask)
 
     return image, mask
 
+
 def parse_rgb_ir_augmented(serialized_datapoint):
+    # Function to return the image after augmentation
+    
     image, mask = parse_rgb_ir(serialized_datapoint)
     image, mask = augment(image, mask)
     
     return image, mask
 
 def parse_rgb_augmented(serialized_datapoint):
+    # Function to return the image after augmentation
     image, mask = parse_rgb(serialized_datapoint)
     image, mask = augment(image, mask)
     

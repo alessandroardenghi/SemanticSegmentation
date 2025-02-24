@@ -3,6 +3,7 @@ from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Conv2DTranspose
 from tensorflow.keras.models import Model
 
 def build_base_model(input_size=(224, 224, 4)):
+    # Base Model
     model = tf.keras.Sequential()
     model.add(Input(shape=input_size))
     model.add(Conv2D(32, kernel_size=(3, 3), activation='relu', padding='same'))
@@ -12,6 +13,8 @@ def build_base_model(input_size=(224, 224, 4)):
 
 
 def build_shallow_unet(input_size=(224, 224, 5)):
+    
+    # Encoder Decoder Model (Shallow Unet)
     input = Input(input_size)
 
     # ENCODER 
