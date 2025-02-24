@@ -37,9 +37,9 @@ def build_shallow_unet(input_size=(224, 224, 5)):
     second_upsample = Conv2DTranspose(32, kernel_size= (3, 3), 
                                       activation = 'relu', strides = (2, 2), padding = 'same')(concat_1)        # (112, 112, 128) -> (224, 224, 32)
 
-    concat_1 = Concatenate()([second_upsample, first_conv])                                                     # (224, 224, 32)  + (224, 224, 32) -> (224, 224, 64)
+    concat_2 = Concatenate()([second_upsample, first_conv])                                                     # (224, 224, 32)  + (224, 224, 32) -> (224, 224, 64)
     third_upsample = Conv2DTranspose(32, kernel_size = (3, 3), 
-                                     activation = 'relu', padding = 'same')(second_upsample)                    #(224, 224, 64) -> (224, 224, 32)
+                                     activation = 'relu', padding = 'same')(concat_2)                    #(224, 224, 64) -> (224, 224, 32)
 
 
     output = Conv2D(6, kernel_size = (3, 3), activation = 'softmax', padding = 'same')(third_upsample)
