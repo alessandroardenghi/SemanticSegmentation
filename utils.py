@@ -9,6 +9,9 @@ import rasterio as rio
 from rasterio.transform import xy
 import numpy as np
 import json
+import matplotlib.pyplot as plt
+import numpy as np
+import json
 
 def read_tiff(datapoint_path):
     img = rio.open(datapoint_path)
@@ -318,39 +321,39 @@ def parse_rgb(serialized_datapoint):
     return image, mask
 
 
-def build_datasets(train_filenames, val_filenames, test_filenames, parsing_function, batch_size=16):
+def build_datasets(train_filenames, val_filenames, test_filenames, parsing_function_train, parsing_function_val_test, batch_size=16):
     
     if isinstance(train_filenames, list):
         train_dataset = (
             tf.data.TFRecordDataset(train_filenames)
-            .map(parsing_function, num_parallel_calls=4)      
+            .map(parsing_function_train, num_parallel_calls=4)      
             .shuffle(buffer_size=100)                   
             .batch(batch_size)
             .prefetch(1)                                
         )
     else:
-        train_dataset = train_filenames.map(parsing_function, num_parallel_calls=4).shuffle(buffer_size=100).batch(batch_size).prefetch(1) 
+        train_dataset = train_filenames.map(parsing_function_train, num_parallel_calls=4).shuffle(buffer_size=100).batch(batch_size).prefetch(1) 
 
     if isinstance(val_filenames, list):
         val_dataset = (
             tf.data.TFRecordDataset(val_filenames)
-            .map(parsing_function, num_parallel_calls=4)
+            .map(parsing_function_val_test, num_parallel_calls=4)
             .batch(batch_size)
             .prefetch(1)
         )
     else:
-        val_dataset = val_filenames.map(parsing_function, num_parallel_calls=4).batch(batch_size).prefetch(1)
+        val_dataset = val_filenames.map(parsing_function_val_test, num_parallel_calls=4).batch(batch_size).prefetch(1)
     
     if isinstance(test_filenames, list):
         test_dataset = (
             tf.data.TFRecordDataset(test_filenames)
-            .map(parsing_function, num_parallel_calls=4)
+            .map(parsing_function_val_test, num_parallel_calls=4)
             .batch(batch_size)  
             .prefetch(1)
         )
     
     else:
-        test_dataset = test_filenames.map(parsing_function, num_parallel_calls=4).batch(batch_size).prefetch(1)
+        test_dataset = test_filenames.map(parsing_function_val_test, num_parallel_calls=4).batch(batch_size).prefetch(1)
 
     return train_dataset, val_dataset, test_dataset
 
@@ -456,4 +459,67 @@ def parse_easy(image, mask, name, lat, lon):
     mask = tf.squeeze(mask, axis=-1)
     mask = tf.cast(mask, tf.int32)
     mask = tf.one_hot(mask, depth=6)
+    return image, mask
+
+def plot_val_and_loss(validation_scores, test_scores, model_names):
+
+    x = np.arange(len(model_names))
+    width = 0.35  
+
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    rects1 = ax.bar(x - width/2, validation_scores, width, label='Validation', color='skyblue')
+    rects2 = ax.bar(x + width/2, test_scores, width, label='Test', color='salmon')
+
+    ax.set_ylabel('Score')
+    ax.set_title('Validation vs Test Scores by Model')
+    ax.set_xticks(x)
+    ax.set_xticklabels(model_names)
+    ax.legend()
+
+    def autolabel(rects):
+        """Attach a text label above each bar displaying its height."""
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f'{height:.4f}',
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  
+                        textcoords="offset points",
+                        ha='center', va='bottom')
+
+    autolabel(rects1)
+    autolabel(rects2)
+
+    plt.tight_layout()
+    plt.show()
+    
+
+def augment(image, mask):
+    # Random rotation by a multiple of 90 degrees
+    k = tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32)
+    image = tf.image.rot90(image, k)
+    mask = tf.image.rot90(mask, k)
+
+    # Random horizontal flip with probability 0.5
+    flip_lr = tf.less(tf.random.uniform([], 0, 1.0), 0.5)
+    image = tf.cond(flip_lr, lambda: tf.image.flip_left_right(image), lambda: image)
+    mask = tf.cond(flip_lr, lambda: tf.image.flip_left_right(mask), lambda: mask)
+
+    # Random vertical flip with probability 0.5
+    flip_ud = tf.less(tf.random.uniform([], 0, 1.0), 0.5)
+    image = tf.cond(flip_ud, lambda: tf.image.flip_up_down(image), lambda: image)
+    mask = tf.cond(flip_ud, lambda: tf.image.flip_up_down(mask), lambda: mask)
+
+    return image, mask
+
+def parse_rgb_ir_augmented(serialized_datapoint):
+    image, mask = parse_rgb_ir(serialized_datapoint)
+    image, mask = augment(image, mask)
+    
+    return image, mask
+
+def parse_rgb_augmented(serialized_datapoint):
+    image, mask = parse_rgb(serialized_datapoint)
+    image, mask = augment(image, mask)
+    
     return image, mask
